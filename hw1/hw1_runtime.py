@@ -22,6 +22,11 @@ GPU_SPECS = {
         "peak_flops": 91.6e12,  # 91.6 TFLOP/s FP32
         "peak_bw": 864e9,  # 864 GB/s GDDR6 bandwidth
     },
+    "RTX PRO 2000": {
+        "label": "NVIDIA RTX PRO 2000 Blackwell Laptop",
+        "peak_flops": 17.7e12,  # 17.7 TFLOP/s FP32
+        "peak_bw": 384e9,  # 384 GB/s GDDR7 bandwidth
+    },
 }
 
 
