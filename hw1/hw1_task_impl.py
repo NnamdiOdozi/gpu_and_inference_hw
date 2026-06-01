@@ -121,12 +121,39 @@ def compute_elementwise_metrics(num_elements, num_ops, bytes_per_element, ms, va
 # Why does performance rise as arithmetic intensity increases even though the
 # measured runtime changes only a little?
 #
+# A1. With fusion, the kernel reads and writes each element only once regardless
+# of how many operations are performed — the memory traffic stays constant while
+# the FLOP count grows with num_ops. Since runtime barely changes (the kernel
+# remains memory-bound and the bottleneck is bandwidth, not compute), more FLOPs
+# completed in the same time means higher measured FLOP/s and higher arithmetic
+# intensity.
+#
 # Q2. In one sample run, `matmul 1024x1024` achieved lower FLOP/s than the
 # `128 ops` compiled element-wise operation. Give one or two reasons why that can
 # happen on a large GPU like an H100.
+#
+# A2. A 1024x1024 matrix is relatively small — it may not have enough tiles to
+# fully occupy all SMs on a large GPU like an H100, leaving most of the hardware
+# idle. Additionally, the cuBLAS kernel selection and dispatch overhead is
+# non-trivial for small matrices, whereas the compiled element-wise kernel has
+# minimal launch overhead and fills GPU memory bandwidth efficiently.
 #
 # Q3. Between `64 ops` and `128 ops`, runtime increases more noticeably than it
 # did for smaller operations. What does that suggest about what resource is
 # becoming the bottleneck?
 #
+# A3. Up to 64 ops the kernel is memory-bound — adding more FLOPs costs
+# essentially nothing because the GPU completes them while waiting for memory.
+# The runtime jump at 128 ops indicates the operation has crossed the ridge point
+# and is now compute-bound: the GPU's arithmetic units are fully saturated and
+# additional FLOPs directly increase execution time.
+#
 # Q4. Why do the eager `ops-K` points look so different from the compiled ones?
+#
+# A4. In eager mode each loop iteration launches separate multiply and add
+# kernels, each of which reads and writes intermediate tensors to VRAM. This
+# means byte traffic grows linearly with num_ops, keeping arithmetic intensity
+# stuck at a low constant value (~0.083 FLOP/B) regardless of how many
+# iterations run. The compiled version fuses all iterations into a single kernel
+# that reads and writes memory only once, allowing arithmetic intensity to grow
+# linearly with num_ops as intended.

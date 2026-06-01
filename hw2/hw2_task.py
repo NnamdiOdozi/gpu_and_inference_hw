@@ -155,7 +155,8 @@ def main():
             "optimized_s": round(optimized_elapsed, 4),
             "speedup": round(speedup, 4),
         }
-        summary_path = RESULTS_DIR / "summary.json"
+        ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        summary_path = RESULTS_DIR / f"summary_{ts}.json"
         with open(summary_path, "w") as f:
             json.dump(summary, f, indent=2)
         print(f"  Summary saved to {summary_path}")
@@ -171,6 +172,32 @@ if __name__ == "__main__":
 #
 # Changes made and speedup per fix:
 #
+# 1. float16 (USE_FP16): switched model dtype from float32 to float16 in
+#    generate_optimized(). Halves memory per parameter and per activation,
+#    reducing bandwidth pressure on every forward pass. Measured speedup: ~3.8x.
+#
+# 2. KV cache (USE_KV_CACHE): pass use_cache=True and carry past_key_values
+#    between steps. Without this the slow loop reprocesses the full growing
+#    sequence each step (O(n^2) attention work); with the cache each step
+#    processes only the single new token. Measured additional speedup: ~4-5x
+#    on top of fp16, combined ~16x over baseline.
+#
+# 3. torch.compile (USE_COMPILE): wrap the model with torch.compile() before
+#    the generation loop. Inductor fuses CUDA kernels, reduces launch overhead,
+#    and selects faster kernel implementations. Measured additional speedup:
+#    ~1.4x on top of fp16 + KV cache, combined ~22x over baseline.
+#
+# 4. SDPA / flash attention (USE_FLASH_ATTN): set attn_implementation="sdpa"
+#    at model construction. This regressed performance (~12x vs 22x). With KV
+#    cache active each decode step attends over a query of length 1, so the
+#    quadratic savings of flash attention don't apply and the SDPA kernel
+#    introduces overhead relative to the standard path. Left disabled.
 #
 # Biggest impact and why:
 #
+# KV cache had the largest single impact. The slow baseline reprocesses the
+# entire sequence (prompt + all generated tokens) at every step, meaning
+# attention cost grows quadratically with sequence length. Enabling the cache
+# reduces each decode step to a single-token forward pass, eliminating the
+# redundant computation entirely. float16 and torch.compile both compound on
+# top of this but neither addresses as fundamental a source of waste.
